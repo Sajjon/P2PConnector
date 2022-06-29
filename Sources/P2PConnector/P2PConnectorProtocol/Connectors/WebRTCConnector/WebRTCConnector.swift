@@ -23,7 +23,8 @@ public actor WebRTCConnector: P2PConnectorProtocol {
 
 public extension WebRTCConnector {
     func establishP2PConnection() async throws -> P2PCommunicationChannel {
-       
+        try await transport.initialize()
+        
         // Provide other client with webRTC "OFFER"
         let offer = try await webRTC.createOffer()
         try await transport.transport(offer: offer)

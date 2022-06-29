@@ -205,6 +205,10 @@ public extension QRCodeParser {
 }
 
 public extension QRCodeTransport {
+    
+    func initialize() async throws {
+       /* nothing to do? */
+    }
  
     func transport(offer: Offer) async throws {
         try await transport(content: offer, type: .offer)
@@ -336,4 +340,10 @@ public extension QRCodeTransport {
     enum Error: Swift.Error {
         case expectedToScanQRCode(forType: WebRTCPackageType, butGot: WebRTCPackageType)
     }
+}
+
+public enum WebRTCPackageType: String, Equatable, Codable {
+    case offer
+    case answer
+    case iceCandidate
 }

@@ -33,6 +33,10 @@ public final class MockSignalServerTransport: TransportProtocol {
 }
 
 public extension MockSignalServerTransport {
+    
+    func initialize() async throws {
+        try await Task.sleep(nanoseconds: 10)
+    }
   
     func transport(offer: Offer) async throws {
         try await Task.sleep(nanoseconds: 10)

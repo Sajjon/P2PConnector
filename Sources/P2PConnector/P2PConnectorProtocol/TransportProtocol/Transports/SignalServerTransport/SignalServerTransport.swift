@@ -9,6 +9,8 @@ import Foundation
 
 public protocol NetworkingProtocol {
     
+    func connect() async
+    
     /// Either websocket send or RESTFul POST/GET
     func send(data: Data) async throws
     
@@ -16,17 +18,78 @@ public protocol NetworkingProtocol {
     var incomingMessages: AsyncStream<Data> { get }
 }
 
+public actor WebSocket: NetworkingProtocol {
+    
+    
+    public let incomingMessages: AsyncStream<Data>
+    private var incomingMessagesContinuation: AsyncStream<Data>.Continuation
+   
+    private let webSocketTask: URLSessionWebSocketTask
+    
+    init(
+        webSocketServerURL: URL,
+        session: URLSession = .shared
+    ) {
+        self.webSocketTask = session.webSocketTask(with: webSocketServerURL)
+        
+        var incomingMessagesContinuation: AsyncStream<Data>.Continuation?
+        let incomingMessages = AsyncStream<Data> { continuation in
+            incomingMessagesContinuation = continuation
+        }
+     
+        self.incomingMessages = incomingMessages
+        self.incomingMessagesContinuation = incomingMessagesContinuation!
+    }
+}
+public extension WebSocket {
+    
+    func connect() async {
+        webSocketTask.resume()
+        Task.detached { [self] in
+            try await self.receiveMessage()
+        }
+    }
+    
+    func send(data: Data) async throws {
+        try await webSocketTask.send(.data(data))
+    }
+}
+private extension WebSocket {
+    
+    func receiveMessage() async throws {
+        let message = try await webSocketTask.receive()
+        switch message {
+        case let .data(data):
+            received(data: data)
+        case let .string(string):
+            received(data: string.data(using: .utf8)!)
+        default: break
+        }
+        try await receiveMessage()
+    }
+    
+    private func received(data: Data) {
+        incomingMessagesContinuation.yield(data)
+    }
+}
+
 public actor SignalServerTransport: TransportProtocol {
     
+    private let connectionID: ConnectionID
+    private let encryption: EncryptionProtocol
     private let networking: NetworkingProtocol
     private let jsonEncoder: JSONEncoder
     private let jsonDecoder: JSONDecoder
     
     public init(
+        connectionID: ConnectionID,
+        encryption: EncryptionProtocol,
         networking: NetworkingProtocol,
         jsonEncoder: JSONEncoder = .init(),
         jsonDecoder: JSONDecoder = .init()
     ) {
+        self.connectionID = connectionID
+        self.encryption = encryption
         self.networking = networking
         self.jsonEncoder = jsonEncoder
         self.jsonDecoder = jsonDecoder
@@ -34,11 +97,20 @@ public actor SignalServerTransport: TransportProtocol {
     
 }
 
+private struct Subscribe: Codable, Equatable {
+    let connectionID: ConnectionID
+}
 public extension SignalServerTransport {
+    
+    func initialize() async throws {
+        await networking.connect()
+        let subscribe = Subscribe(connectionID: connectionID)
+        try await transportPlaintext(payload: subscribe, type: .subscribe)
+    }
   
     func transport(offer: Offer) async throws {
         try await transport(
-            payload: offer,
+            encrypting: offer,
             type: .offer
         )
     }
@@ -46,7 +118,7 @@ public extension SignalServerTransport {
     func transport(iceCandidates: [ICECandidate]) async throws {
         for iceCandidate in iceCandidates {
             try await transport(
-                payload: iceCandidate,
+                encrypting: iceCandidate,
                 type: .iceCandidate
             )
         }
@@ -95,7 +167,7 @@ public enum WebRTCPackageSource: Codable, Equatable {
 }
 
 public struct IncomingSimpleSignalServerPackage: Decodable, Equatable {
-    public let packageType: WebRTCPackageType
+    public let packageType: SignalServerPackageType
     public let source: WebRTCPackageSource
     public let id: UUID
 }
@@ -103,7 +175,7 @@ public struct IncomingSimpleSignalServerPackage: Decodable, Equatable {
 public struct IncomingSignalServerPackage<Payload>: Decodable, Equatable
     where Payload: Decodable & Equatable
 {
-    public let packageType: WebRTCPackageType
+    public let packageType: SignalServerPackageType
     public let source: WebRTCPackageSource
     public let payload: Payload
     public let id: UUID
@@ -112,7 +184,7 @@ public struct IncomingSignalServerPackage<Payload>: Decodable, Equatable
 public struct OutgoingSignalServerPackage<Payload>: Encodable, Equatable
     where Payload: Encodable & Equatable
 {
-    public let packageType: WebRTCPackageType
+    public let packageType: SignalServerPackageType
     public let payload: Payload
     public let source: WebRTCPackageSource
     public let id: UUID
@@ -120,23 +192,46 @@ public struct OutgoingSignalServerPackage<Payload>: Encodable, Equatable
 
 private extension SignalServerTransport {
     
-    func transport<Payload: Codable & Equatable>(
+    func transportPlaintext<Payload: Encodable & Equatable>(
         payload: Payload,
-        type packageType: WebRTCPackageType,
+        type packageType: SignalServerPackageType,
         id: UUID = .init()
     ) async throws {
-        let package = OutgoingSignalServerPackage(
+        try await _transport(type: packageType, payload: payload) { $0 }
+    }
+    
+    func transport<Payload: Encodable & Equatable>(
+        encrypting plaintext: Payload,
+        type packageType: SignalServerPackageType,
+        id: UUID = .init()
+    ) async throws {
+        try await _transport(type: packageType, payload: plaintext) {
+            let data = try jsonEncoder.encode($0)
+            return try await encryption.encrypt(data: data)
+        }
+    }
+    
+    func _transport<Payload, Transformed>(
+        type packageType: SignalServerPackageType,
+        id: UUID = .init(),
+        payload: Payload,
+        transformPayload: (Payload) async throws -> Transformed
+    ) async throws where Payload: Encodable & Equatable, Transformed: Encodable & Equatable {
+        let transformed: Transformed = try await transformPayload(payload)
+        
+        let package = OutgoingSignalServerPackage<Transformed>(
             packageType: packageType,
-            payload: payload,
+            payload: transformed,
             source: .mobile,
             id: id
         )
+        
         let jsonData = try jsonEncoder.encode(package)
         try await networking.send(data: jsonData)
     }
     
     func fetchPayload<Payload>(
-        type packageType: WebRTCPackageType
+        type packageType: SignalServerPackageType
     ) async throws -> Payload
     where Payload: Decodable & Equatable
     {
@@ -144,7 +239,7 @@ private extension SignalServerTransport {
     }
     
     func fetchPayload<Payload>(
-        type packageType: WebRTCPackageType,
+        type packageType: SignalServerPackageType,
         as payloadType: Payload.Type
     ) async throws -> Payload
     where Payload: Decodable & Equatable
@@ -178,4 +273,11 @@ public struct IndexICECandidate: Codable, Equatable {
     public let iceCandidate: ICECandidate
     public let index: Int
     public let totalNumberOfCandidates: Int
+}
+
+public enum SignalServerPackageType: String, Equatable, Codable {
+    case answer
+    case offer
+    case iceCandidate
+    case subscribe
 }
