@@ -7,72 +7,6 @@
 
 import Foundation
 
-public protocol NetworkingProtocol {
-    
-    func connect() async
-    
-    /// Either websocket send or RESTFul POST/GET
-    func send(data: Data) async throws
-    
-    /// Either a websocket subscription or poll based RESTFul request
-    var incomingMessages: AsyncStream<Data> { get }
-}
-
-public actor WebSocket: NetworkingProtocol {
-    
-    
-    public let incomingMessages: AsyncStream<Data>
-    private var incomingMessagesContinuation: AsyncStream<Data>.Continuation
-   
-    private let webSocketTask: URLSessionWebSocketTask
-    
-    init(
-        webSocketServerURL: URL,
-        session: URLSession = .shared
-    ) {
-        self.webSocketTask = session.webSocketTask(with: webSocketServerURL)
-        
-        var incomingMessagesContinuation: AsyncStream<Data>.Continuation?
-        let incomingMessages = AsyncStream<Data> { continuation in
-            incomingMessagesContinuation = continuation
-        }
-     
-        self.incomingMessages = incomingMessages
-        self.incomingMessagesContinuation = incomingMessagesContinuation!
-    }
-}
-public extension WebSocket {
-    
-    func connect() async {
-        webSocketTask.resume()
-        Task.detached { [self] in
-            try await self.receiveMessage()
-        }
-    }
-    
-    func send(data: Data) async throws {
-        try await webSocketTask.send(.data(data))
-    }
-}
-private extension WebSocket {
-    
-    func receiveMessage() async throws {
-        let message = try await webSocketTask.receive()
-        switch message {
-        case let .data(data):
-            received(data: data)
-        case let .string(string):
-            received(data: string.data(using: .utf8)!)
-        default: break
-        }
-        try await receiveMessage()
-    }
-    
-    private func received(data: Data) {
-        incomingMessagesContinuation.yield(data)
-    }
-}
-
 public actor SignalServerTransport: TransportProtocol {
     
     private let connectionID: ConnectionID
@@ -97,9 +31,9 @@ public actor SignalServerTransport: TransportProtocol {
     
 }
 
-private struct Subscribe: Codable, Equatable {
-    let connectionID: ConnectionID
-}
+// MARK: - Public
+
+// MARK: - TransportProtocol (Public)
 public extension SignalServerTransport {
     
     func initialize() async throws {
@@ -161,35 +95,9 @@ public extension SignalServerTransport {
     }
 }
 
-public enum WebRTCPackageSource: Codable, Equatable {
-    case mobile
-    case browserExtension
-}
+// MARK: - Private
 
-public struct IncomingSimpleSignalServerPackage: Decodable, Equatable {
-    public let packageType: SignalServerPackageType
-    public let source: WebRTCPackageSource
-    public let id: UUID
-}
-
-public struct IncomingSignalServerPackage<Payload>: Decodable, Equatable
-    where Payload: Decodable & Equatable
-{
-    public let packageType: SignalServerPackageType
-    public let source: WebRTCPackageSource
-    public let payload: Payload
-    public let id: UUID
-}
-
-public struct OutgoingSignalServerPackage<Payload>: Encodable, Equatable
-    where Payload: Encodable & Equatable
-{
-    public let packageType: SignalServerPackageType
-    public let payload: Payload
-    public let source: WebRTCPackageSource
-    public let id: UUID
-}
-
+// MARK: - Transport (Private)
 private extension SignalServerTransport {
     
     func transportPlaintext<Payload: Encodable & Equatable>(
@@ -229,7 +137,10 @@ private extension SignalServerTransport {
         let jsonData = try jsonEncoder.encode(package)
         try await networking.send(data: jsonData)
     }
-    
+}
+
+// MARK: - Fetch (Private)
+private extension SignalServerTransport {
     func fetchPayload<Payload>(
         type packageType: SignalServerPackageType
     ) async throws -> Payload
@@ -269,15 +180,4 @@ private extension SignalServerTransport {
     }
 }
 
-public struct IndexICECandidate: Codable, Equatable {
-    public let iceCandidate: ICECandidate
-    public let index: Int
-    public let totalNumberOfCandidates: Int
-}
 
-public enum SignalServerPackageType: String, Equatable, Codable {
-    case answer
-    case offer
-    case iceCandidate
-    case subscribe
-}

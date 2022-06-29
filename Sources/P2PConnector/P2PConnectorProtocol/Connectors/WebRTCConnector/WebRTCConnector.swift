@@ -27,7 +27,6 @@ public extension WebRTCConnector {
         try await transport.initialize()
         debugPrint("☑️ Initialized transport")
         
-        
         // Provide other client with webRTC "OFFER"
         debugPrint("🔮 Creating local OFFER")
         let offer = try await webRTC.createOffer()
@@ -68,6 +67,7 @@ public extension WebRTCConnector {
         debugPrint("🔮 Waiting for WebRTC dataChannel to be opened.")
         let channel = try await webRTC.channel()
         debugPrint("✅ DataChannel is opened, P2P connection established. Good bye.")
+        
         return channel
     }
 }
