@@ -9,7 +9,6 @@ import Foundation
 
 public let nanosecondsPerMillisecond: TimeInterval = 1_000_000
 
-
 public struct Offer: Codable, Equatable {
     public let sdp: String
 }
