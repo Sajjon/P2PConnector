@@ -9,17 +9,20 @@ import Foundation
 import CoreGraphics
 
 public protocol QRCodeGeneratorProtocol {
-    func generateQR(data: Data, errorCorrectionLevel: QRCodeErrorCorrectionLevel, size: CGSize?) async throws -> CGImage
+    func generateQR(data: Data, errorCorrectionLevel: QRInputCorrectionLevel, size: CGSize?) async throws -> CGImage
 }
 
 public extension QRCodeGeneratorProtocol {
     
     func generateQR(
         data: Data,
-        errorCorrectionLevel: QRCodeErrorCorrectionLevel = .l,
+        errorCorrectionLevel: QRInputCorrectionLevel = .high30,
         size: CGSize? = nil
     ) async throws -> CGImage {
         try await generateQR(data: data, errorCorrectionLevel: errorCorrectionLevel, size: size)
     }
 }
 
+public extension QRCodeGeneratorProtocol where Self == QRCodeGenerator {
+    static var `default`: some QRCodeGeneratorProtocol { QRCodeGenerator.default }
+}

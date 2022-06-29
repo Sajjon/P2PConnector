@@ -10,6 +10,15 @@ import Foundation
 public struct Package<Description> {
     public let packageDescription: Description
     public let payload: Payload
+    
+    public init(
+        packageDescription: Description,
+        payload: Payload
+    ) {
+        self.packageDescription = packageDescription
+        self.payload = payload
+    }
+    
 }
 
 extension Package: Encodable where Description: Encodable {}

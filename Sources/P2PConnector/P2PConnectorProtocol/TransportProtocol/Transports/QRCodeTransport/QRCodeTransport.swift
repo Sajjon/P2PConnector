@@ -10,86 +10,42 @@ import CoreGraphics
 import Algorithms
 
 
-
-
-
-public protocol QRCodeParserProtocol {
-    func parse<Description>(code: QRCodeScanned<Description>) async throws -> QRCodeParsed<Description>
-}
-
-public actor QRCodeTransport<Description>: TransportProtocol {
+public actor QRCodeTransport: TransportProtocol {
   
-    private let qrCodeGenerator: QRCodeGeneratorProtocol
     private let qrCodeScanning: QRCodeScanningProtocol
     private let qrCodeParser: QRCodeParserProtocol
     private let qrCodeDisplaying: QRCodeDisplayingProtocol
-    private let packer: PackerProtocol
-//    private let unpacker: UnpackerProtocol
-    private let jsonEncoder: JSONEncoder
+    
+    private let qrCodesContentSplitter: QRContentSplitterProtocol
+    
+//    private let qrCodeGenerator: QRCodeGeneratorProtocol
+//    private let packer: PackerProtocol
+//    private let jsonEncoder: JSONEncoder
     
     public init(
-        qrCodeGenerator: QRCodeGeneratorProtocol,
         qrCodeScanning: QRCodeScanningProtocol,
         qrCodeDisplaying: QRCodeDisplayingProtocol,
-        qrCodeParser: QRCodeParserProtocol,
-        packer: PackerProtocol,
-//        unpacker: UnpackerProtocol,
-        jsonEncoder: JSONEncoder = .init()
+        qrCodeParser: QRCodeParserProtocol = .default,
+//        qrCodeGenerator: QRCodeGeneratorProtocol = .default,
+//        packer: PackerProtocol = .default,
+//        jsonEncoder: JSONEncoder = .init()
+        qrCodesContentSplitter: QRContentSplitterProtocol = .default
        
     ) {
-        self.qrCodeGenerator = qrCodeGenerator
         self.qrCodeScanning = qrCodeScanning
         self.qrCodeDisplaying = qrCodeDisplaying
         self.qrCodeParser = qrCodeParser
-        self.packer = packer
-//        self.unpacker = unpacker
-        self.jsonEncoder = jsonEncoder
+//        self.qrCodeGenerator = qrCodeGenerator
+//        self.packer = packer
+//        self.jsonEncoder = jsonEncoder
+        self.qrCodesContentSplitter = qrCodesContentSplitter
     }
 }
 
 
-public struct QRPackageDescription: Equatable, Codable {
-    public let packageType: WebRTCPackageType
-    public let id: String
-    
-    public init(
-        type packageType: WebRTCPackageType,
-        id: String
-    ) {
-        self.packageType = packageType
-        self.id = id
-    }
-}
+// MARK: - Public
 
-private extension QRCodeTransport {
-    typealias Package = P2PConnector.Package<QRPackageDescription>
-    typealias QRCodeImage = P2PConnector.QRCodeImage<QRPackageDescription>
-    typealias QRCodeScanned = P2PConnector.QRCodeScanned<QRPackageDescription>
-}
-
-public struct QRCode<Description, Content> {
-    public let description: Description
-    public let content: Content
-}
-public typealias QRCodeImage<Description> = QRCode<Description, CGImage>
-public typealias QRCodeScanned<Description> = QRCode<Description, String>
-public typealias QRCodeParsed<Description> = QRCode<Description, Payload>
-
-public final class QRCodeParser: QRCodeParserProtocol {
-
-    private let jsonDecoder: JSONDecoder
-    public init(jsonDecoder: JSONDecoder = .init()) {
-        self.jsonDecoder = jsonDecoder
-    }
-}
-public extension QRCodeParser {
-    func parse<Description>(code: QRCodeScanned<Description>) async throws -> QRCodeParsed<Description> {
-        let jsonData = code.content.data(using: .utf8)!
-        let payload = try jsonDecoder.decode(Payload.self, from: jsonData)
-        return QRCodeParsed.init(description: code.description, content: payload)
-    }
-}
-
+// MARK: - TransportProtocol (Public)
 public extension QRCodeTransport {
     
     func initialize() async throws {
@@ -146,23 +102,70 @@ public extension QRCodeTransport {
     }
 }
 
+// MARK: - Error
+public extension QRCodeTransport {
+    enum Error: Swift.Error {
+        case expectedToScanQRCode(
+            forType: WebRTCPackageType,
+            butGot: WebRTCPackageType
+        )
+    }
+}
+
+
+// MARK: - Private
 private extension QRCodeTransport {
     
     func scan() async throws -> QRCodeScanned {
         try await qrCodeScanning.scan()
     }
-    
-    
-    func transport<Content: Codable>(
-        content: Content,
+}
+
+internal extension QRCodeTransport {
+    typealias Package = P2PConnector.Package<QRPackageDescription>
+    typealias QRCodeImage = P2PConnector.QRCodeImage<QRPackageDescription>
+    typealias QRCodeScanned = P2PConnector.QRCodeScanned<QRPackageDescription>
+}
+
+public protocol QRContentSplitterProtocol {
+    func splitContentIntoQRCodes<Content: Codable, Description: Encodable>(
+        _ content: Content,
         type packageType: WebRTCPackageType,
-        id: String = UUID().uuidString
-    ) async throws {
-        let packages: [Package] = try await packer.pack(content: content) { payload in
-            QRPackageDescription(type: packageType, id: id)
-        }
+        id: String,
+        describe: (Payload) throws -> Description
+    ) async throws -> [QRCode<Description, CGImage>]
+}
+public extension QRContentSplitterProtocol where Self ==  QRContentSplitter{
+    static var `default`: some QRContentSplitterProtocol {
+        QRContentSplitter.default
+    }
+}
+public actor QRContentSplitter: QRContentSplitterProtocol {
+    private let packer: PackerProtocol
+    private let qrCodeGenerator: QRCodeGeneratorProtocol
+    private let jsonEncoder: JSONEncoder
+   
+    public init(
+        packer: PackerProtocol = .default,
+        qrCodeGenerator: QRCodeGeneratorProtocol = .default,
+        jsonEncoder: JSONEncoder = .init()
+    ) {
+        self.packer = packer
+        self.qrCodeGenerator = qrCodeGenerator
+        self.jsonEncoder = jsonEncoder
+    }
+    public static let `default` = QRContentSplitter()
+}
+public extension QRContentSplitter {
+    func splitContentIntoQRCodes<Content: Codable, Description: Encodable>(
+        _ content: Content,
+        type packageType: WebRTCPackageType,
+        id: String,
+        describe: (Payload) throws -> Description
+    ) async throws -> [QRCode<Description, CGImage>] {
+        let packages: [Package] = try await packer.pack(content: content, describe: describe)
         
-        let qrCodeImages: [QRCodeImage] = try await packages.asyncMap { package in
+        let qrCodeImages: [QRCode<Description, CGImage>] = try await packages.asyncMap { package in
             let json = try jsonEncoder.encode(package)
             let image = try await qrCodeGenerator.generateQR(data: json)
             
@@ -174,11 +177,32 @@ private extension QRCodeTransport {
             return qrCodeImage
         }
         
+        return qrCodeImages
+    }
+}
+
+
+// MARK: - Transport
+private extension QRCodeTransport {
+    
+    func transport<Content: Codable>(
+        content: Content,
+        type packageType: WebRTCPackageType,
+        id: String = UUID().uuidString
+    ) async throws {
+        let qrCodeImages = try await qrCodesContentSplitter.splitContentIntoQRCodes(content, type: packageType, id: id) { payload in
+            QRPackageDescription(type: packageType, id: id)
+        }
+
+        
         for qrCodeImage in qrCodeImages {
             try await qrCodeDisplaying.display(qrCodeImage: qrCodeImage)
         }
     }
-    
+}
+
+// MARK: - Fetch
+private extension QRCodeTransport {
     func fetch<Content: Codable>(
         type packageType: WebRTCPackageType
     ) async throws -> (
@@ -200,14 +224,18 @@ private extension QRCodeTransport {
         var scannedContent = Data()
         var isLast = false
         while !isLast {
+            debugPrint("📸 🏁 scanning QR code")
             let scanned = try await scan()
+            debugPrint("📸 🏁 scanned QR code => parsing")
             let parsed = try await qrCodeParser.parse(code: scanned)
+            debugPrint("📸 🏁 parsed QR code => appending contents")
             scannedContent += parsed.content.data
             isLast = parsed.content.payloadDescription.isLastPayloadForContent
-            precondition(scannedContent.count == parsed.content.payloadDescription.totalPayloadCount)
+            precondition(scannedContent.count == parsed.content.payloadDescription.byteCountTotal, "scannedContent.count=\(scannedContent.count) != parsed.content.payloadDescription.byteCountTotal=\(parsed.content.payloadDescription.byteCountTotal)")
         }
-        
+        debugPrint("📸 🏁 reassembled contents => decoding to `Package`")
         let package = try JSONDecoder().decode(Package.self, from: scannedContent)
+        debugPrint("📸 🏁 Decoding as `Package` => checking package type")
 
         guard package.packageDescription.packageType == packageType else {
             throw Error.expectedToScanQRCode(
@@ -215,21 +243,11 @@ private extension QRCodeTransport {
                 butGot: package.packageDescription.packageType
             )
         }
+        debugPrint("📸 🏁 `Package` has correct package type \(packageType) => decoding `package.payload.data` as \(Content.self)")
         
         let payloadData = package.payload.data
         let content = try JSONDecoder().decode(Content.self, from: payloadData)
+        debugPrint("📸 🏁 `Decoding `package.payload.data` as \(Content.self) => returning content as FETCHED.")
         return (content: content, payloadDescription: package.payload.payloadDescription, packageDescription: package.packageDescription)
     }
-}
-
-public extension QRCodeTransport {
-    enum Error: Swift.Error {
-        case expectedToScanQRCode(forType: WebRTCPackageType, butGot: WebRTCPackageType)
-    }
-}
-
-public enum WebRTCPackageType: String, Equatable, Codable {
-    case offer
-    case answer
-    case iceCandidate
 }

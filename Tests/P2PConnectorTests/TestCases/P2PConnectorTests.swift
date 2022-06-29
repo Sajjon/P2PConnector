@@ -52,25 +52,6 @@ final class P2PConnectorTests: XCTestCase {
             fetchData: { _ in Data() /* empty dummy data */ }
         )
         
-//        let channelSendSubject = PassthroughSubject<Data, Never>()
-//        let channelMessagesPublisher = PassthroughSubject<Data, Never>()
-        
-//        var incomingMessagesContinuation: AsyncStream<Data>.Continuation?
-//        let incomingMessagesStream = AsyncStream<Data>.init { continuation in
-//            incomingMessagesContinuation = continuation
-//        }
-//
-//        var outgoingMessagesContinuation: AsyncStream<Data>.Continuation?
-//        let outgoingMessagesStream = AsyncStream<Data>.init { continuation in
-//            outgoingMessagesContinuation = continuation
-//        }
-
-        
-//        let mockedWebRTC = MockWebRTC(
-//            webRTCConfig: .default,
-//            channelSendSubject: channelSendSubject,
-//            channelMessagesPublisher: channelMessagesPublisher.eraseToAnyPublisher()
-//        )
         let mockP2PChannel = MockedP2PChannel()
         
         let mockedWebRTC = MockWebRTC(

@@ -19,6 +19,10 @@ public final class Packer: PackerProtocol {
         self.byteCutOffThreshold = byteCutOffThreshold
         self.jsonEncoder = jsonEncoder
     }
+    public static func `default`(
+        byteCutOffThreshold: Int = 256,
+        jsonEncoder: JSONEncoder = .init()
+    ) -> Self { .init(byteCutOffThreshold: byteCutOffThreshold, jsonEncoder: jsonEncoder) }
 }
 public extension Packer {
     

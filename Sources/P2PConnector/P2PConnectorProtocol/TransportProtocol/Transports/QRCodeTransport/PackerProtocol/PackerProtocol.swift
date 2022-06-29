@@ -14,3 +14,9 @@ public protocol PackerProtocol {
         describe: (Payload) throws -> Description
     ) async throws -> [Package<Description>] where Content: Encodable
 }
+
+public extension PackerProtocol where Self == Packer {
+    static var `default`: some PackerProtocol {
+        Packer.default()
+    }
+}
