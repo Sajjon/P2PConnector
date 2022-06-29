@@ -161,11 +161,6 @@ public actor QRCodeTransport<Description>: TransportProtocol {
     }
 }
 
-public enum WebRTCPackageType: String, Equatable, Codable {
-    case offer
-    case answer
-    case iceCandidate
-}
 
 public struct QRPackageDescription: Equatable, Codable {
     public let packageType: WebRTCPackageType
@@ -229,14 +224,22 @@ public extension QRCodeTransport {
         try await fetch(type: .answer).content
     }
    
+    /// N.B. This REQUIRES that browserExtension batches ICECandidates and
+    /// are aware of how many candidates it batched during some duration when
+    /// it transports the first candidate to the mobile client.
     func fetchICECandidates() async throws -> [ICECandidate] {
+       
         var iceCandidates: [ICECandidate] = []
+       
         let (firstRemoteICECandidate, payloadDescription, _) = try await fetch(
             type: .iceCandidate,
             as: ICECandidate.self
         )
+       
         iceCandidates.append(firstRemoteICECandidate)
+       
         var remainingICECandidates = payloadDescription.totalPayloadCount - 1 // minus one because we just got the first...
+       
         while remainingICECandidates > 0 {
             let (remoteICECandidate, payloadDescription, _) = try await fetch(
                 type: .iceCandidate,
