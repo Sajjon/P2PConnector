@@ -48,10 +48,11 @@ public extension MockSignalServerTransport {
    
     func fetchAnswer() async throws -> Answer {
         try await Task.sleep(nanoseconds: 10)
-        return Answer(sdp: "mockAnswerFromExtension")
+        return Answer(sdp: "Mocked ANSWER from Extension")
     }
     
     func fetchICECandidates() async throws -> [ICECandidate] {
-        return [101, 102, 103].map { ICECandidate.init(sdp: "mockCandidateFromExtension", lineIndex: $0) }
+        let indices = (0..<minNumberOfCandidates).map { $0 + iceCandidateFromExtensionOffset }
+        return indices.map { ICECandidate.init(sdp: "Mocked ICECandidate from extension", lineIndex: $0) }
     }
 }
