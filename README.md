@@ -1,5 +1,7 @@
 I've made this in my free time, it contains some sketches for a highly abstracted WebRTC Swift solution, which uses an abstraction of "Transport Layer".
 
+This is a much more clean approach to solving P2P connection using WebRTC than [Prata](https://github.com/radixdlt/prata). I've made this after having finished implemented the SignalingServer flow in Prata, bearing in mind that we might wanna support a secondary, or even a third "transport layer" - alternative to SignalingServer flow.
+
 Take a look at file `WebRTCConnector`
 
 ```swift
